@@ -1,4 +1,4 @@
-package httpsserve
+package httpsproxy
 
 import (
 	"crypto/rand"
@@ -6,42 +6,85 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
-	"httpsproxy/proxy"
 	"log"
 	"math/big"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/zhenzhaoya/httpsproxy/config"
+)
+
+type H map[string]string
+type CookieCache struct {
+	Proxy  string
+	Cookie []string
+}
+
+type UserCache struct {
+	Cookie    []string
+	UserAgent string
+	Proxy     string
+	Sid       string
+	Count     int
+}
+
+type ProxyEx struct {
+	userCache     map[string][]*UserCache //[domain][]{Cookie,UserAgent,IP}
+	config        *config.Config
+	useProxy      bool
+	collectCookie bool
+
+	BeforeRequest func(http.ResponseWriter, *http.Request) bool
+	AfterResponse func(*http.Response, *http.Request)
+}
+
+func json2userCache(b []byte) (map[string][]*UserCache, error) {
+	c := make(map[string][]*UserCache)
+	err := json.Unmarshal(b, &c)
+	return c, err
+}
+
+var (
+// myConfig         *config.Config
+// proxyCache       map[string]*CookieCache = make(map[string]*CookieCache)
+// cookieCache      map[string]H            = make(map[string]H)
+// domainProxyCache H                       = make(H)
 )
 
 var logger = log.New(os.Stderr, "httpsproxy:", log.Llongfile|log.LstdFlags)
 
-func Serve(listenAdress string){
+func GetAPP() *ProxyEx {
+	app := &ProxyEx{userCache: make(map[string][]*UserCache), collectCookie: true}
+	return app
+}
+
+func (self *ProxyEx) Start(config *config.Config) {
+	self.config = config
 	cert, err := genCertificate()
 	if err != nil {
 		logger.Fatal(err)
 	}
 
 	server := &http.Server{
-		Addr: listenAdress,
-		TLSConfig: 	&tls.Config{Certificates: []tls.Certificate{cert},},
+		Addr:      config.Addr,
+		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			proxy.Serve(w, r)
+			self.proxyHandler(w, r)
 		}),
 	}
 
 	logger.Fatal(server.ListenAndServe())
-
 }
 
-func genCertificate() (cert tls.Certificate, err error){
+func genCertificate() (cert tls.Certificate, err error) {
 	rawCert, rawKey, err := generateKeyPair()
 	if err != nil {
 		return
 	}
 	return tls.X509KeyPair(rawCert, rawKey)
-
 }
 
 func generateKeyPair() (rawCert, rawKey []byte, err error) {
