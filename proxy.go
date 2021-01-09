@@ -14,7 +14,6 @@ import (
 
 	"github.com/zhenzhaoya/httpsproxy/config"
 	"github.com/zhenzhaoya/httpsproxy/utils"
-	"golang.org/x/net/proxy"
 )
 
 func getCookie(c string, r *http.Request) string {
@@ -71,9 +70,6 @@ func (self *ProxyEx) getProxy(r *http.Request, cache *UserCache) string {
 
 		if config.Proxy.All != nil && len(config.Proxy.All) > 0 {
 			p = config.Proxy.All[utils.GetRandNum(0, len(config.Proxy.All))]
-		}
-		if p != "" {
-			return strings.Split(r.RequestURI, ":")[0] + "://" + p
 		}
 	}
 	return p
@@ -240,7 +236,7 @@ func (self *ProxyEx) handleHttp(w http.ResponseWriter, r *http.Request) {
 	var err error = nil
 	p := self.getProxy(r, cache)
 	if p != "" {
-		proxyUrl, _ := url.Parse(p)
+		proxyUrl, _ := url.Parse("http://" + p)
 		tr = &http.Transport{
 			Proxy:              http.ProxyURL(proxyUrl),
 			TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
@@ -281,12 +277,10 @@ func (self *ProxyEx) handleHttps(w http.ResponseWriter, r *http.Request) {
 
 	cache := self.setCookie(r)
 	self.setUserAgent(r, cache)
-	p := self.getProxy(r, cache)
-	if p != "" {
-		proxy.FromURL()
-	}
 
-	destConn, err := net.DialTimeout("tcp", r.Host, 60*time.Second)
+	var destConn net.Conn = nil
+	var err error = nil
+	destConn, err = net.DialTimeout("tcp", r.Host, 60*time.Second)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -325,6 +319,7 @@ func (self *ProxyEx) afterResponse(resp *http.Response, r *http.Request, p strin
 func transfer(destination io.WriteCloser, source io.ReadCloser) {
 	defer destination.Close()
 	defer source.Close()
+
 	io.Copy(destination, source)
 }
 
